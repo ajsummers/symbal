@@ -1,0 +1,3 @@
+# SymBAL - Symbolic Batch Active Learning framework
+
+Currently in development...

@@ -1,0 +1,17 @@
+#!/bin/bash
+#SBATCH --job-name={{ sisso.prefix }}
+#SBATCH --nodes=1
+#SBATCH --ntasks={{ sisso.ntasks }}
+#SBATCH --partition={{ sisso.partition }}
+#SBATCH --time={{ sisso.time }}:00:00
+#SBATCH --output={{ sisso.prefix }}.o%j
+#SBATCH --error={{ sisso.prefix }}.e%j
+#SBATCH --mem={{ sisso.mem }}G{% if sisso.mail_type %}
+#SBATCH --mail-type={% for type in sisso.mail_type %}{{ type }},{% endfor %}{% endif %}{% if sisso.mail_user %}
+#SBATCH --mail-user={{ sisso.mail_user }}{% endif %}
+
+cd ~
+module load intel
+module load mpi
+cd {{ folder }}
+mpirun -n {{ sisso.ntasks }} SISSO > log

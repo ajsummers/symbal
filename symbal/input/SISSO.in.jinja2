@@ -1,0 +1,41 @@
+!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+! Below are the list of keywords for SISSO. Use exclamation mark,!,to comment out a line.
+! The (R), (C) and (R&C) denotes the keyword to be used by regression, classification and both, respectively.
+! More explanations on these keywords can be found in the SISSO_guide.pdf
+! Users need to change the setting below according to your data and job.
+!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+!Alex Summers - 2023
+!Original form taken from SISSO GitHub page (https://github.com/rouyang2017/SISSO)
+!For more mathematical details, see the paper (https://arxiv.org/abs/1710.03319)
+!Changes made for ninia package to only allow single-task learning.
+!Strict constraints can be seen in 'ntask', 'task_weighting', and 'scmt' below.
+!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ptype={{ sisso.ptype }}                 !Property type 1: regression, 2:classification.
+ntask=1                                 !(R&C) Multi-task learning (MTL) is invoked if >1.
+task_weighting=1                        !(R) MTL 1: no weighting (tasks treated equally), 2: weighted by the # of samples.
+scmt=.false.                            !(R) Sign-Constrained MTL is invoked if .true.
+desc_dim={{ sisso.desc_dim }}           !(R&C) Dimension of the descriptor, a hyperparmaeter.
+nsample={{ sisso.nsample }}             !(R) Number of samples in train.dat. For MTL, set nsample=N1,N2,... for each task.
+restart={{ sisso.restart }}             !(R&C) 0: starts from scratch, 1: continues the job(progress in the file CONTINUE)
+
+!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+! Feature construction (FC) and sure independence screening (SIS)
+! Implemented operators:(+)(-)(*)(/)(exp)(exp-)(^-1)(^2)(^3)(sqrt)(cbrt)(log)(|-|)(scd)(^6)(sin)(cos)
+! scd: standard Cauchy distribution
+!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+nsf={{ sisso.nsf }}                                         !(R&C) Number of scalar features provided in the file train.dat
+ops='{{ sisso.ops }}'                                       !(R&C) Please customize the operators from the list shown above.
+fcomplexity={{ sisso.fcomplexity }}{% if sisso.funit %}     !(R&C) Maximal feature complexity (# of operators in a feature), integer usually 0 to 7.
+funit={{ sisso.funit }}{% endif %}                          !(R&C) (n1:n2): features from n1 to n2 in the train.dat have same units
+fmax_min={{ sisso.fmax_min }}                               !(R&C) The feature will be discarded if the max. abs. value in it is < fmax_min.
+fmax_max={{ sisso.fmax_max }}                               !(R&C) The feature will be discarded if the max. abs. value in it is > fmax_max.
+nf_sis={{ sisso.nf_sis }}                                   !(R&C) Number of features in each of the SIS-selected subspace.
+
+!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+! Descriptor identification (DI) via sparse regression
+!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+method_so='{{ sisso.method_so }}'       !(R&C) 'L0' or 'L1L0'(LASSO+L0). The 'L0' is recommended for both ptype=1 and 2.
+nl1l0={{ sisso.nl1l0 }}                 !(R) Only useful if method_so = 'L1L0', number of LASSO-selected features for the L0.
+fit_intercept={{ sisso.fit_intercept }} !(R) Fit to a nonzero (.true.) or zero (.false.) intercept for the linear model.
+metric='{{ sisso.metric }}'             !(R) The metric for model selection in regression: RMSE or MaxAE (max absolute error)
+nmodels={{ sisso.nmodels }}             !(R&C) Number of the top-ranked models to output (see the folder 'models')
