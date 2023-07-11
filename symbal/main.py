@@ -47,7 +47,7 @@ class SymbalTest:
 
             equation_best = pysr_model.predict(x_cand)
 
-            for j in range(pysr_model.equations_['equation']):
+            for j, _ in enumerate(pysr_model.equations_['equation']):
                 predictions[:, j] = pysr_model.predict(x_cand, j) - equation_best
 
             scores = np.array(pysr_model.equations_['score'])
