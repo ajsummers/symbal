@@ -11,6 +11,9 @@ class SymbalTest:
     def __init__(self, function, min_vals, max_vals, iterations, batch_size, pysr_model, testfunction=None,
                  batch_config=None):
 
+        testfunction = dict() if testfunction is None else testfunction
+        batch_config = dict() if batch_config is None else batch_config
+
         self.captured_penalties = pd.DataFrame()
         self.selected_indices = []
 
