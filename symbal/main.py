@@ -4,6 +4,7 @@ from symbal.utils import batch_selection as bs
 from symbal.utils import get_score, get_metrics
 import numpy as np
 import pandas as pd
+import logging
 
 
 class SymbalTest:
@@ -65,7 +66,7 @@ class SymbalTest:
             self.selected_indices.append(selected_indices)
 
             tf.initial_set = pd.concat([tf.initial_set, tf.candidates.loc[selected_indices, :]], axis=0)
-            tf.candidates = tf.candidates.drop(selected_indices, axis=0)
+            tf.candidates = tf.candidates.drop(selected_indices, axis=0).reset_index(drop=True)
 
         scores_dict = {
             'equation': equations,
