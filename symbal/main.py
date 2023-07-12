@@ -22,7 +22,7 @@ class SymbalTest:
         self.candidates = tf.candidates
 
         equations, extrap_scores, interp_scores, existing_scores = [[], [], [], []]
-        losses, scores, losses_other, scores_other = [[], [], [], []]
+        losses, best_scores, losses_other, scores_other = [[], [], [], []]
 
         for i in range(iterations):
 
@@ -38,7 +38,7 @@ class SymbalTest:
             equation, loss, score, loss_other, score_other = get_metrics(pysr_model)
             equations.append(equation)
             losses.append(loss)
-            scores.append(score)
+            best_scores.append(score)
             losses_other.append(loss_other)
             scores_other.append(score_other)
 
@@ -64,7 +64,7 @@ class SymbalTest:
             self.captured_penalties = pd.concat([self.captured_penalties, captured_penalties], axis=1)
             self.selected_indices.append(selected_indices)
 
-            tf.inital_set = pd.concat([tf.inital_set, tf.candidates.loc[selected_indices, :]], axis=0)
+            tf.initial_set = pd.concat([tf.initial_set, tf.candidates.loc[selected_indices, :]], axis=0)
             tf.candidates = tf.candidates.drop(selected_indices, axis=0)
 
         scores_dict = {
@@ -73,7 +73,7 @@ class SymbalTest:
             'interp': interp_scores,
             'existing': existing_scores,
             'loss': losses,
-            'score': scores,
+            'score': best_scores,
             'loss_other': losses_other,
             'score_other': scores_other
         }
