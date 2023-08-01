@@ -5,12 +5,13 @@ from symbal.utils import get_score, get_metrics
 import numpy as np
 import pandas as pd
 import logging
+import random
 
 
 class SymbalTest:
 
     def __init__(self, function, min_vals, max_vals, iterations, batch_size, pysr_model, testfunction=None,
-                 batch_config=None):
+                 batch_config=None, acquisition='active'):
 
         testfunction = dict() if testfunction is None else testfunction
         batch_config = dict() if batch_config is None else batch_config
@@ -29,6 +30,9 @@ class SymbalTest:
 
             x_train = tf.initial_set.drop('output', axis=1)
             y_train = tf.initial_set['output']
+
+            if pysr_model.equation_file is not None:
+                pysr_model.equation_file = pysr_model.equation_file.replace('.csv', '') + f'_{i}.csv'
 
             pysr_model.fit(x_train, y_train)
 
@@ -58,11 +62,21 @@ class SymbalTest:
 
             x_cand.insert(0, 'uncertainty', uncertainty)
 
-            selected_indices, captured_penalties = bs(np.array(x_cand), batch_size=batch_size, **batch_config)
-            captured_penalties = captured_penalties.rename(columns={
-                column: f'{i+1}-{column}' for column in list(captured_penalties.columns)
-            })
-            self.captured_penalties = pd.concat([self.captured_penalties, captured_penalties], axis=1)
+            if (acquisition == 'active') or (acquisition == 'AL'):
+
+                selected_indices, captured_penalties = bs(np.array(x_cand), batch_size=batch_size, **batch_config)
+                captured_penalties = captured_penalties.rename(columns={
+                    column: f'{i+1}-{column}' for column in list(captured_penalties.columns)
+                })
+                self.captured_penalties = pd.concat([self.captured_penalties, captured_penalties], axis=1)
+
+            elif acquisition == 'random':
+
+                selected_indices = random.sample(np.array(x_cand).shape[0], k=batch_size)
+
+            else:
+                selected_indices = random.sample(np.array(x_cand).shape[0], k=batch_size)
+
             self.selected_indices.append(selected_indices)
 
             tf.initial_set = pd.concat([tf.initial_set, tf.candidates.loc[selected_indices, :]], axis=0)
