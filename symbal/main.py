@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import logging
 import random
+import re
 
 
 class SymbalTest:
@@ -32,7 +33,10 @@ class SymbalTest:
             y_train = tf.initial_set['output']
 
             if pysr_model.equation_file is not None:
-                pysr_model.equation_file = pysr_model.equation_file.replace('.csv', '') + f'_{i}.csv'
+                if i == 0:
+                    pysr_model.equation_file = pysr_model.equation_file.replace('.csv', '') + f'-{i}.csv'
+                else:
+                    pysr_model.equation_file = re.sub(r'-\d+', f'-{i}', pysr_model.equation_file)
 
             pysr_model.fit(x_train, y_train)
 
@@ -72,10 +76,10 @@ class SymbalTest:
 
             elif acquisition == 'random':
 
-                selected_indices = random.sample(np.array(x_cand).shape[0], k=batch_size)
+                selected_indices = random.sample(range(np.array(x_cand).shape[0]), k=batch_size)
 
             else:
-                selected_indices = random.sample(np.array(x_cand).shape[0], k=batch_size)
+                selected_indices = random.sample(range(np.array(x_cand).shape[0]), k=batch_size)
 
             self.selected_indices.append(selected_indices)
 
