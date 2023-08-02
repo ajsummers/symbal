@@ -1,36 +1,42 @@
 
-from symbal import TestFunction
+from symbal import TestFunction, Dataset
 from symbal.utils import batch_selection as bs
 from symbal.utils import get_score, get_metrics
 import numpy as np
 import pandas as pd
-import logging
+# import logging
 import random
 import re
 
 
 class SymbalTest:
 
-    def __init__(self, function, min_vals, max_vals, iterations, batch_size, pysr_model, testfunction=None,
-                 batch_config=None, acquisition='active'):
+    def __init__(self, iterations, batch_size, pysr_model, function=None, min_vals=None, max_vals=None, 
+                 testfunction=None, batch_config=None, acquisition='active', dataset=None, data_config=None):
 
         testfunction = dict() if testfunction is None else testfunction
         batch_config = dict() if batch_config is None else batch_config
+        data_config = dict() if data_config is None else data_config
 
         self.captured_penalties = pd.DataFrame()
         self.selected_indices = []
 
-        tf = TestFunction(function, min_vals, max_vals, **testfunction)
-        self.initial_set = tf.initial_set
-        self.candidates = tf.candidates
+        if function is not None:
+            datobj = TestFunction(function, min_vals, max_vals, **testfunction)
+        else:
+            datobj = Dataset(dataset, **data_config)
+
+        self.initial_set = datobj.initial_set
+        self.candidates = datobj.candidates
 
         equations, extrap_scores, interp_scores, existing_scores = [[], [], [], []]
         losses, best_scores, losses_other, scores_other = [[], [], [], []]
+        holdout_scores = []
 
         for i in range(iterations):
 
-            x_train = tf.initial_set.drop('output', axis=1)
-            y_train = tf.initial_set['output']
+            x_train = datobj.initial_set.drop('output', axis=1)
+            y_train = datobj.initial_set['output']
 
             if pysr_model.equation_file is not None:
                 if i == 0:
@@ -40,9 +46,13 @@ class SymbalTest:
 
             pysr_model.fit(x_train, y_train)
 
-            extrap_scores.append(get_score(tf.extrapolation_testset, pysr_model))
-            interp_scores.append(get_score(tf.interpolation_testset, pysr_model))
-            existing_scores.append(get_score(tf.initial_set, pysr_model))
+            if function is not None:
+                extrap_scores.append(get_score(datobj.extrapolation_testset, pysr_model))
+                interp_scores.append(get_score(datobj.interpolation_testset, pysr_model))
+            else:
+                holdout_scores.append(get_score(datobj.holdout_set, pysr_model))
+
+            existing_scores.append(get_score(datobj.initial_set, pysr_model))
 
             equation, loss, score, loss_other, score_other = get_metrics(pysr_model)
             equations.append(equation)
@@ -51,7 +61,7 @@ class SymbalTest:
             losses_other.append(loss_other)
             scores_other.append(score_other)
 
-            x_cand = tf.candidates.drop('output', axis=1)
+            x_cand = datobj.candidates.drop('output', axis=1)
             predictions = np.empty((len(x_cand), len(pysr_model.equations_['equation'])))
 
             equation_best = pysr_model.predict(x_cand)
@@ -76,24 +86,43 @@ class SymbalTest:
 
             elif acquisition == 'random':
 
+                if 'seed' in testfunction:
+                    random.seed(testfunction['seed'])
+
                 selected_indices = random.sample(range(np.array(x_cand).shape[0]), k=batch_size)
 
             else:
+
+                if 'seed' in testfunction:
+                    random.seed(testfunction['seed'])
+
                 selected_indices = random.sample(range(np.array(x_cand).shape[0]), k=batch_size)
 
             self.selected_indices.append(selected_indices)
 
-            tf.initial_set = pd.concat([tf.initial_set, tf.candidates.loc[selected_indices, :]], axis=0)
-            tf.candidates = tf.candidates.drop(selected_indices, axis=0).reset_index(drop=True)
+            initial_addition = datobj.candidates.iloc[selected_indices, :]
+            datobj.initial_set = pd.concat([datobj.initial_set, initial_addition], axis=0, ignore_index=True)
+            datobj.candidates = datobj.candidates.drop(selected_indices, axis=0).reset_index(drop=True)
 
-        scores_dict = {
-            'equation': equations,
-            'extrap': extrap_scores,
-            'interp': interp_scores,
-            'existing': existing_scores,
-            'loss': losses,
-            'score': best_scores,
-            'loss_other': losses_other,
-            'score_other': scores_other
-        }
+        if function is not None:
+            scores_dict = {
+                'equation': equations,
+                'extrap': extrap_scores,
+                'interp': interp_scores,
+                'existing': existing_scores,
+                'loss': losses,
+                'score': best_scores,
+                'loss_other': losses_other,
+                'score_other': scores_other
+            }
+        else:
+            scores_dict = {
+                'equation': equations,
+                'holdout': holdout_scores,
+                'existing': existing_scores,
+                'loss': losses,
+                'score': best_scores,
+                'loss_other': losses_other,
+                'score_other': scores_other
+            }
         self.scores = pd.DataFrame(scores_dict)

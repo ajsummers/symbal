@@ -143,4 +143,3 @@ class TestFunction:
         self.initial_set['output'] = self.initial_set.eval(function)
         self.initial_set['output'] += np.random.normal(scale=noise_level*np.std(self.initial_set['output']),
                                                        size=(len(self.initial_set['output']),))
-
