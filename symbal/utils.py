@@ -1,8 +1,8 @@
+import copy
 
 import numpy as np
 from symbal.penalties import invquad_penalty
 import pandas as pd
-import random
 
 
 def new_penalty(penalty_array, penalty_function, a, b, by_range, batch_size):
@@ -23,8 +23,8 @@ def new_penalty(penalty_array, penalty_function, a, b, by_range, batch_size):
     if by_range:
         s_x = np.ptp(penalty_array[:, 1:], axis=0) / batch_size  # Tune width of penalty by range / batch_size
     else:
-        s_x = np.std(penalty_array[:, 1:],
-                     axis=0)  # Tune width of penalty by standard deviation of each independent variable
+        s_x = np.nanstd(penalty_array[:, 1:],
+                        axis=0)  # Tune width of penalty by standard deviation of each independent variable
     s_y = np.nanstd(penalty_array[:, 0], axis=0)  # Standard deviation of penalized value
 
     penalty = penalty_function(a, b, r_x, s_x, s_y)
@@ -33,7 +33,8 @@ def new_penalty(penalty_array, penalty_function, a, b, by_range, batch_size):
     return max_index, penalty_array
 
 
-def batch_selection(uncertainty_array, penalty_function=invquad_penalty, a=1, b=1, by_range=False, batch_size=10):
+def batch_selection(uncertainty_array, penalty_function=invquad_penalty, a=1, b=1, by_range=False, batch_size=10,
+                    **kwargs):
 
     captured_penalties = pd.DataFrame()
     selected_indices = []
@@ -49,7 +50,7 @@ def batch_selection(uncertainty_array, penalty_function=invquad_penalty, a=1, b=
     return selected_indices, captured_penalties
 
 
-def get_score(input_df, pysr_model):
+def get_score(input_df, pysr_model):  # TODO - NaN filtering?
 
     predicted = pysr_model.predict(input_df)
     actual = np.array(input_df['output'])
@@ -72,29 +73,53 @@ def get_metrics(pysr_model):
     return equation, loss, score, loss_other, score_other
 
 
-class Dataset:
+def get_gradient(cand_df, pysr_model, num=None, difference=None):
 
-    def __init__(self, dataset: pd.DataFrame, **kwargs):
+    if difference is None:
+        difference = 1e-8
 
-        initial_size = kwargs['initial_size'] if 'initial_size' in kwargs else 20
-        holdout_size = kwargs['holdout_size'] if 'holdout_size' in kwargs else 100
-        seed = kwargs['seed'] if 'seed' in kwargs else None
-        output_name = kwargs['output_name'] if 'output_name' in kwargs else None
-
-        if seed is not None:
-            random.seed(seed)
-
-        if output_name is not None:
-            dataset = dataset.rename(columns={output_name: 'output'})
+    overall = copy.deepcopy(cand_df)
+    diff_dict = {
+        column: pd.concat([cand_df.loc[:, column] + difference, cand_df.drop(column, axis=1)], axis=1)
+        for column in cand_df
+    }
+    for column in cand_df:
+        if num is not None:
+            overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column], num)
+            overall.loc[:, f'd__{column}'] = (overall.loc[:, f'fh__{column}'] -
+                                              pysr_model.predict(cand_df, num)) / difference
         else:
-            dataset = dataset.rename(columns={dataset.columns[0]: 'output'})
+            overall.loc[:, f'fh__{column}'] = pysr_model.predict(cand_df[column])
+            overall.loc[:, f'd__{column}'] = (overall.loc[:, f'fh__{column}'] -
+                                              pysr_model.predict(cand_df)) / difference
 
-        initial_indices = random.sample(range(len(dataset)), k=initial_size)
-        self.initial_set = dataset.iloc[initial_indices, :].reset_index(drop=True)
-        dataset = dataset.drop(initial_indices, axis=0).reset_index(drop=True)
+    grad_string = 'sqrt('
+    for column in overall:
+        if 'd__' in column:
+            grad_string += f'{column}**2 + '
+    grad_string = grad_string.rstrip(' + ') + ')'
+    overall['grad'] = overall.eval(grad_string)
 
-        holdout_indices = random.sample(range(len(dataset)), k=holdout_size)
-        self.holdout_set = dataset.iloc[holdout_indices, :].reset_index(drop=True)
-        dataset = dataset.drop(holdout_indices, axis=0).reset_index(drop=True)
+    return np.array(overall['grad'])
 
-        self.candidates = dataset
+
+def get_all_gradients(cand_df, pysr_model, difference=1e-8):
+
+    gradients = np.empty((len(cand_df), len(pysr_model.equations_['equation'])))
+
+    for j, _ in enumerate(pysr_model.equations_['equation']):
+        gradients[:, j] = get_gradient(cand_df, pysr_model, num=j, difference=difference)
+
+    return gradients
+
+
+def get_predictions(cand_df, pysr_model):
+
+    predictions = np.empty((len(cand_df), len(pysr_model.equations_['equation'])))
+    equation_best = pysr_model.predict(cand_df)
+
+    for j, _ in enumerate(pysr_model.equations_['equation']):
+        predictions[:, j] = pysr_model.predict(cand_df, j) - equation_best
+
+    return predictions
+

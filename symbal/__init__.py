@@ -7,8 +7,8 @@ if sys.version_info[0] == 2:
     raise ImportError('SymBAL requires Python 3.7. You have Python 2 installed.')
 
 __all__ = ['TestFunction', 'SymbalTest', 'Dataset']
-__version__ = '0.0.14'
+__version__ = '0.0.17'
 
 from symbal.test_function import TestFunction
+from symbal.dataset import Dataset
 from symbal.main import SymbalTest
-from symbal.utils import Dataset

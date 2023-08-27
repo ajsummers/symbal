@@ -1,7 +1,7 @@
 
 from symbal import TestFunction, Dataset
 from symbal.utils import batch_selection as bs
-from symbal.utils import get_score, get_metrics
+from symbal.utils import get_score, get_metrics, get_all_gradients, get_predictions
 import numpy as np
 import pandas as pd
 # import logging
@@ -62,19 +62,39 @@ class SymbalTest:
             scores_other.append(score_other)
 
             x_cand = datobj.candidates.drop('output', axis=1)
-            predictions = np.empty((len(x_cand), len(pysr_model.equations_['equation'])))
 
-            equation_best = pysr_model.predict(x_cand)
+            if 'uncertainty' in acquisition:
+                objective_array = get_predictions(x_cand, pysr_model)
+            elif 'gradient' in acquisition:
+                if 'difference' in batch_config:
+                    objective_array = get_all_gradients(x_cand, pysr_model, batch_config['difference'])
+                else:
+                    objective_array = get_all_gradients(x_cand, pysr_model)
+            elif 'mix' in acquisition:
+                if 'difference' in batch_config:
+                    objective_array1 = get_all_gradients(x_cand, pysr_model, batch_config['difference'])
+                else:
+                    objective_array1 = get_all_gradients(x_cand, pysr_model)
+                objective_array2 = get_predictions(x_cand, pysr_model)
 
-            for j, _ in enumerate(pysr_model.equations_['equation']):
-                predictions[:, j] = pysr_model.predict(x_cand, j) - equation_best
+                range1 = np.ptp(objective_array1, axis=1)
+                range2 = np.ptp(objective_array2, axis=1)
+                range1[range1 == 0] = 1
+                range2[range2 == 0] = 1
+                objective_array1 = objective_array1 / range1
+                objective_array2 = objective_array2 / range2
+                objective_array = 0.5 * objective_array1 + 0.5 * objective_array2
+
+            else:
+                objective_array = get_predictions(x_cand, pysr_model)  # TODO - create other else case
 
             scores = np.array(pysr_model.equations_['score'])
+            if 'score_reg' in batch_config:
+                if batch_config['score_reg']:
+                    objective_array = objective_array * scores
 
-            predictions_weight = predictions * scores
-            uncertainty = np.sum(np.abs(predictions_weight), axis=1)
-
-            x_cand.insert(0, 'uncertainty', uncertainty)
+            objective = np.sum(np.abs(objective_array), axis=1)
+            x_cand.insert(0, 'objective', objective)
 
             if (acquisition == 'active') or (acquisition == 'AL'):
 
