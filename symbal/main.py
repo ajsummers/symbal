@@ -1,3 +1,4 @@
+import copy
 
 from symbal import TestFunction, Dataset
 from symbal.utils import batch_selection as bs
@@ -20,6 +21,7 @@ class SymbalTest:
 
         self.captured_penalties = pd.DataFrame()
         self.selected_indices = []
+        self.past_model = None
 
         if function is not None:
             datobj = TestFunction(function, min_vals, max_vals, **testfunction)
@@ -28,6 +30,7 @@ class SymbalTest:
 
         self.initial_set = datobj.initial_set
         self.candidates = datobj.candidates
+        self.datobj = datobj
 
         equations, extrap_scores, interp_scores, existing_scores = [[], [], [], []]
         losses, best_scores, losses_other, scores_other = [[], [], [], []]
@@ -45,6 +48,19 @@ class SymbalTest:
                     pysr_model.equation_file = re.sub(r'-\d+', f'-{i}', pysr_model.equation_file)
 
             pysr_model.fit(x_train, y_train)
+
+            if self.past_model is not None:
+
+                past_pred = self.past_model.predict(x_train)
+                curr_pred = pysr_model.predict(x_train)
+                true_y = np.array(y_train)
+
+                past_mae = np.nanmean(np.abs(past_pred - true_y))
+                curr_mae = np.nanmean(np.abs(curr_pred - true_y))
+
+                if curr_mae > past_mae:
+                    pysr_model = self.past_model
+                    pysr_model.equation_file = re.sub(r'-\d+', f'-{i}', pysr_model.equation_file)
 
             if function is not None:
                 extrap_scores.append(get_score(datobj.extrapolation_testset, pysr_model))
@@ -77,8 +93,8 @@ class SymbalTest:
                     objective_array1 = get_all_gradients(x_cand, pysr_model)
                 objective_array2 = get_predictions(x_cand, pysr_model)
 
-                range1 = np.ptp(objective_array1, axis=1)
-                range2 = np.ptp(objective_array2, axis=1)
+                range1 = np.ptp(objective_array1, axis=0)
+                range2 = np.ptp(objective_array2, axis=0)
                 range1[range1 == 0] = 1
                 range2[range2 == 0] = 1
                 objective_array1 = objective_array1 / range1
@@ -96,7 +112,7 @@ class SymbalTest:
             objective = np.sum(np.abs(objective_array), axis=1)
             x_cand.insert(0, 'objective', objective)
 
-            if (acquisition == 'active') or (acquisition == 'AL'):
+            if ('active' in acquisition) or ('AL' in acquisition):
 
                 selected_indices, captured_penalties = bs(np.array(x_cand), batch_size=batch_size, **batch_config)
                 captured_penalties = captured_penalties.rename(columns={
@@ -104,7 +120,7 @@ class SymbalTest:
                 })
                 self.captured_penalties = pd.concat([self.captured_penalties, captured_penalties], axis=1)
 
-            elif acquisition == 'random':
+            elif 'random' in acquisition:
 
                 if 'seed' in testfunction:
                     random.seed(testfunction['seed'])
@@ -123,6 +139,8 @@ class SymbalTest:
             initial_addition = datobj.candidates.iloc[selected_indices, :]
             datobj.initial_set = pd.concat([datobj.initial_set, initial_addition], axis=0, ignore_index=True)
             datobj.candidates = datobj.candidates.drop(selected_indices, axis=0).reset_index(drop=True)
+
+            self.past_model = copy.deepcopy(pysr_model)
 
         if function is not None:
             scores_dict = {

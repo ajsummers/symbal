@@ -35,6 +35,7 @@ class TestFunction:
         self.interpolation_testset = None
         self.min_vals = None
         self.max_vals = None
+        self.function = function
 
         if isinstance(min_val, list):
             self.min_vals = np.array(min_val)

@@ -54,7 +54,7 @@ def get_score(input_df, pysr_model):  # TODO - NaN filtering?
 
     predicted = pysr_model.predict(input_df)
     actual = np.array(input_df['output'])
-    score = np.mean(np.abs(predicted - actual))
+    score = np.nanmean(np.abs(predicted - actual))
 
     return score
 
