@@ -4,7 +4,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 
-def objective(x_cand, pysr_model, acquisition, batch_config):
+def objective(x_cand, x_exist, pysr_model, acquisition, batch_config):
 
     objective_array = np.zeros((len(x_cand)))
 
@@ -17,19 +17,19 @@ def objective(x_cand, pysr_model, acquisition, batch_config):
         objective_array += acquisition['curvature'] * curvatures
 
     if 'distance' in acquisition:
-        distances = _distance(x_cand, batch_config)
+        distances = _distance(x_cand, x_exist, batch_config)
         objective_array += acquisition['distance'] * distances
 
     if 'proximity' in acquisition:
-        proximities = _proximity(x_cand, batch_config)
+        proximities = _proximity(x_cand, x_exist, batch_config)
         objective_array += acquisition['proximity'] * proximities
 
     if 'density' in acquisition:
-        densities = _density(x_cand, batch_config)
+        densities = _density(x_cand, x_exist, batch_config)
         objective_array += acquisition['density'] * densities
 
     if 'sparsity' in acquisition:
-        sparsities = _sparsity(x_cand, batch_config)
+        sparsities = _sparsity(x_cand, x_exist, batch_config)
         objective_array += acquisition['sparsity'] * sparsities
 
     if 'uncertainty' in acquisition:
@@ -91,7 +91,7 @@ def _curvature(x_cand, pysr_model, batch_config):
     return curvatures
 
 
-def _distance(x_cand, batch_config):
+def _distance(x_cand, x_exist, batch_config):
 
     if 'distance_metric' in batch_config:
         distance_metric = batch_config['distance_metric']
@@ -99,23 +99,24 @@ def _distance(x_cand, batch_config):
         distance_metric = 'euclidean'
 
     cand_array = np.array(x_cand)
+    exist_array = np.array(x_exist)
     cand_norm = (cand_array - np.min(cand_array, axis=0)) / np.ptp(cand_array, axis=0)
+    exist_norm = (exist_array - np.min(cand_array, axis=0)) / np.ptp(cand_array, axis=0)
 
-    dist_array = cdist(cand_norm, cand_norm, metric=distance_metric)
-    np.fill_diagonal(dist_array, 1)
-    dist_vector = np.min(dist_array, axis=0)
+    dist_array = cdist(cand_norm, exist_norm, metric=distance_metric)
+    dist_vector = np.min(dist_array, axis=1)
 
     return dist_vector
 
 
-def _proximity(x_cand, batch_config):
+def _proximity(x_cand, x_exist, batch_config):
 
-    dist_vector = _distance(x_cand, batch_config)
+    dist_vector = _distance(x_cand, x_exist, batch_config)
 
     return -dist_vector
 
 
-def _density(x_cand, batch_config):
+def _density(x_cand, x_exist, batch_config):
 
     if 'distance_metric' in batch_config:
         distance_metric = batch_config['distance_metric']
@@ -123,17 +124,19 @@ def _density(x_cand, batch_config):
         distance_metric = 'euclidean'
 
     cand_array = np.array(x_cand)
+    exist_array = np.array(x_exist)
     cand_norm = (cand_array - np.min(cand_array, axis=0)) / np.ptp(cand_array, axis=0)
+    exist_norm = (exist_array - np.min(cand_array, axis=0)) / np.ptp(cand_array, axis=0)
 
-    dist_array = cdist(cand_norm, cand_norm, metric=distance_metric)
-    dens_vector = np.mean(dist_array, axis=0)
+    dist_array = cdist(cand_norm, exist_norm, metric=distance_metric)
+    dens_vector = np.mean(dist_array, axis=1)
 
     return dens_vector
 
 
-def _sparsity(x_cand, batch_config):
+def _sparsity(x_cand, x_exist, batch_config):
 
-    dens_vector = _density(x_cand, batch_config)
+    dens_vector = _density(x_cand, x_exist, batch_config)
 
     return -dens_vector
 

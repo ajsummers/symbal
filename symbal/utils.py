@@ -129,14 +129,14 @@ def get_curvature(cand_df, pysr_model, num=None, difference=None):
             overall.loc[:, f'd2__{column}'] = (pysr_model.predict(cand_df) - 2*overall.loc[:, f'fh__{column}'] +
                                                overall.loc[:, f'f2h__{column}']) / difference ** 2
 
-        lapl_string = ''
-        for column in overall:
-            if 'd2__' in column:
-                lapl_string += f'abs({column})'
-        lapl_string = lapl_string.rstrip(' + ')
-        overall['lapl'] = overall.eval(lapl_string)
+    lapl_string = ''
+    for column in overall:
+        if 'd2__' in column:
+            lapl_string += f'abs({column})'
+    lapl_string = lapl_string.rstrip(' + ')
+    overall['lapl'] = overall.eval(lapl_string)
 
-        return np.array(overall['lapl'])
+    return np.array(overall['lapl'])
 
 
 def get_all_gradients(cand_df, pysr_model, difference=1e-8):

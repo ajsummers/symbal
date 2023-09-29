@@ -86,8 +86,9 @@ class SymbalTest:
             scores_other.append(score_other)
 
             x_cand = datobj.candidates.drop('output', axis=1)
+            x_exist = datobj.initial_set.drop('output', axis=1)
 
-            objective_array = objective(x_cand, pysr_model, acquisition, batch_config)
+            objective_array = objective(x_cand, x_exist, pysr_model, acquisition, batch_config)
             x_cand.insert(0, 'objective', objective_array)
 
             selected_indices, captured_penalties = bs(np.array(x_cand), batch_size=batch_size, **batch_config)
