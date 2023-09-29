@@ -132,7 +132,7 @@ def get_curvature(cand_df, pysr_model, num=None, difference=None):
     lapl_string = ''
     for column in overall:
         if 'd2__' in column:
-            lapl_string += f'abs({column})'
+            lapl_string += f'abs({column}) + '
     lapl_string = lapl_string.rstrip(' + ')
     overall['lapl'] = overall.eval(lapl_string)
 
