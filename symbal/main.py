@@ -2,7 +2,8 @@ import copy
 
 from symbal import TestFunction, Dataset
 from symbal.utils import batch_selection as bs
-from symbal.utils import get_score, get_metrics, get_all_gradients, get_predictions
+from symbal.utils import get_score, get_metrics
+from symbal.strategy import objective
 import numpy as np
 import pandas as pd
 # import logging
@@ -13,11 +14,12 @@ import re
 class SymbalTest:
 
     def __init__(self, iterations, batch_size, pysr_model, function=None, min_vals=None, max_vals=None, 
-                 testfunction=None, batch_config=None, acquisition='active', dataset=None, data_config=None):
+                 testfunction=None, batch_config=None, acquisition=None, dataset=None, data_config=None):
 
         testfunction = dict() if testfunction is None else testfunction
         batch_config = dict() if batch_config is None else batch_config
         data_config = dict() if data_config is None else data_config
+        acquisition = dict(uncertainty=0.5, curvature=0.5) if acquisition is None else acquisition
 
         self.captured_penalties = pd.DataFrame()
         self.selected_indices = []
@@ -32,9 +34,12 @@ class SymbalTest:
         self.candidates = datobj.candidates
         self.datobj = datobj
 
-        equations, extrap_scores, interp_scores, existing_scores = [[], [], [], []]
-        losses, best_scores, losses_other, scores_other = [[], [], [], []]
+        equations, extrap_scores, interp_scores, existing_scores = [[]]*4
+        losses, best_scores, losses_other, scores_other = [[]]*4
         holdout_scores = []
+
+        if 'seed' in testfunction:
+            random.seed(testfunction['seed'])
 
         for i in range(iterations):
 
@@ -47,7 +52,10 @@ class SymbalTest:
                 else:
                     pysr_model.equation_file = re.sub(r'-\d+', f'-{i}', pysr_model.equation_file)
 
-            pysr_model.fit(x_train, y_train)
+            if ('X_units' in batch_config) and ('y_units' in batch_config):
+                pysr_model.fit(x_train, y_train, X_units=batch_config['X_units'], y_units=batch_config['y_units'])
+            else:
+                pysr_model.fit(x_train, y_train)
 
             if self.past_model is not None:
 
@@ -79,60 +87,14 @@ class SymbalTest:
 
             x_cand = datobj.candidates.drop('output', axis=1)
 
-            if 'uncertainty' in acquisition:
-                objective_array = get_predictions(x_cand, pysr_model)
-            elif 'gradient' in acquisition:
-                if 'difference' in batch_config:
-                    objective_array = get_all_gradients(x_cand, pysr_model, batch_config['difference'])
-                else:
-                    objective_array = get_all_gradients(x_cand, pysr_model)
-            elif 'mix' in acquisition:
-                if 'difference' in batch_config:
-                    objective_array1 = get_all_gradients(x_cand, pysr_model, batch_config['difference'])
-                else:
-                    objective_array1 = get_all_gradients(x_cand, pysr_model)
-                objective_array2 = get_predictions(x_cand, pysr_model)
+            objective_array = objective(x_cand, pysr_model, acquisition, batch_config)
+            x_cand.insert(0, 'objective', objective_array)
 
-                range1 = np.ptp(objective_array1, axis=0)
-                range2 = np.ptp(objective_array2, axis=0)
-                range1[range1 == 0] = 1
-                range2[range2 == 0] = 1
-                objective_array1 = objective_array1 / range1
-                objective_array2 = objective_array2 / range2
-                objective_array = 0.5 * objective_array1 + 0.5 * objective_array2
-
-            else:
-                objective_array = get_predictions(x_cand, pysr_model)  # TODO - create other else case
-
-            scores = np.array(pysr_model.equations_['score'])
-            if 'score_reg' in batch_config:
-                if batch_config['score_reg']:
-                    objective_array = objective_array * scores
-
-            objective = np.sum(np.abs(objective_array), axis=1)
-            x_cand.insert(0, 'objective', objective)
-
-            if ('active' in acquisition) or ('AL' in acquisition):
-
-                selected_indices, captured_penalties = bs(np.array(x_cand), batch_size=batch_size, **batch_config)
-                captured_penalties = captured_penalties.rename(columns={
-                    column: f'{i+1}-{column}' for column in list(captured_penalties.columns)
-                })
-                self.captured_penalties = pd.concat([self.captured_penalties, captured_penalties], axis=1)
-
-            elif 'random' in acquisition:
-
-                if 'seed' in testfunction:
-                    random.seed(testfunction['seed'])
-
-                selected_indices = random.sample(range(np.array(x_cand).shape[0]), k=batch_size)
-
-            else:
-
-                if 'seed' in testfunction:
-                    random.seed(testfunction['seed'])
-
-                selected_indices = random.sample(range(np.array(x_cand).shape[0]), k=batch_size)
+            selected_indices, captured_penalties = bs(np.array(x_cand), batch_size=batch_size, **batch_config)
+            captured_penalties = captured_penalties.rename(columns={
+                column: f'{i+1}-{column}' for column in list(captured_penalties.columns)
+            })
+            self.captured_penalties = pd.concat([self.captured_penalties, captured_penalties], axis=1)
 
             self.selected_indices.append(selected_indices)
 
@@ -143,24 +105,11 @@ class SymbalTest:
             self.past_model = copy.deepcopy(pysr_model)
 
         if function is not None:
-            scores_dict = {
-                'equation': equations,
-                'extrap': extrap_scores,
-                'interp': interp_scores,
-                'existing': existing_scores,
-                'loss': losses,
-                'score': best_scores,
-                'loss_other': losses_other,
-                'score_other': scores_other
-            }
+            scores_dict = {'equation': equations, 'extrap': extrap_scores, 'interp': interp_scores,
+                           'existing': existing_scores, 'loss': losses, 'score': best_scores,
+                           'loss_other': losses_other, 'score_other': scores_other}
         else:
-            scores_dict = {
-                'equation': equations,
-                'holdout': holdout_scores,
-                'existing': existing_scores,
-                'loss': losses,
-                'score': best_scores,
-                'loss_other': losses_other,
-                'score_other': scores_other
-            }
+            scores_dict = {'equation': equations, 'holdout': holdout_scores, 'existing': existing_scores,
+                           'loss': losses, 'score': best_scores, 'loss_other': losses_other,
+                           'score_other': scores_other}
         self.scores = pd.DataFrame(scores_dict)

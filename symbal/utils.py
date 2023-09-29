@@ -103,6 +103,42 @@ def get_gradient(cand_df, pysr_model, num=None, difference=None):
     return np.array(overall['grad'])
 
 
+def get_curvature(cand_df, pysr_model, num=None, difference=None):
+
+    if difference is None:
+        difference = 1e-8
+
+    overall = copy.deepcopy(cand_df)
+    diff_dict = {
+        column: pd.concat([cand_df.loc[:, column] + difference, cand_df.drop(column, axis=1)], axis=1)
+        for column in cand_df
+    }
+    diff2_dict = {
+        column: pd.concat([cand_df.loc[:, column] + 2*difference, cand_df.drop(column, axis=1)], axis=1)
+        for column in cand_df
+    }
+    for column in cand_df:
+        if num is not None:
+            overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column], num)
+            overall.loc[:, f'f2h__{column}'] = pysr_model.predict(diff2_dict[column], num)
+            overall.loc[:, f'd2__{column}'] = (pysr_model.predict(cand_df, num) - 2*overall.loc[:, f'fh__{column}'] +
+                                               overall.loc[:, f'f2h__{column}']) / difference ** 2
+        else:
+            overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column])
+            overall.loc[:, f'f2h__{column}'] = pysr_model.predict(diff2_dict[column])
+            overall.loc[:, f'd2__{column}'] = (pysr_model.predict(cand_df) - 2*overall.loc[:, f'fh__{column}'] +
+                                               overall.loc[:, f'f2h__{column}']) / difference ** 2
+
+        lapl_string = ''
+        for column in overall:
+            if 'd2__' in column:
+                lapl_string += f'abs({column})'
+        lapl_string = lapl_string.rstrip(' + ')
+        overall['lapl'] = overall.eval(lapl_string)
+
+        return np.array(overall['lapl'])
+
+
 def get_all_gradients(cand_df, pysr_model, difference=1e-8):
 
     gradients = np.empty((len(cand_df), len(pysr_model.equations_['equation'])))
@@ -113,13 +149,13 @@ def get_all_gradients(cand_df, pysr_model, difference=1e-8):
     return gradients
 
 
-def get_predictions(cand_df, pysr_model):
+def get_uncertainties(cand_df, pysr_model):
 
-    predictions = np.empty((len(cand_df), len(pysr_model.equations_['equation'])))
+    uncertainties = np.empty((len(cand_df), len(pysr_model.equations_['equation'])))
     equation_best = pysr_model.predict(cand_df)
 
     for j, _ in enumerate(pysr_model.equations_['equation']):
-        predictions[:, j] = pysr_model.predict(cand_df, j) - equation_best
+        uncertainties[:, j] = pysr_model.predict(cand_df, j) - equation_best
 
-    return predictions
+    return uncertainties
 
