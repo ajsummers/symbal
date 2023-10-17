@@ -34,8 +34,8 @@ class SymbalTest:
         self.candidates = datobj.candidates
         self.datobj = datobj
 
-        equations, extrap_scores, interp_scores, existing_scores = [[]]*4
-        losses, best_scores, losses_other, scores_other = [[]]*4
+        equations, extrap_scores, interp_scores, existing_scores = [], [], [], []
+        losses, best_scores, losses_other, scores_other = [], [], [], []
         holdout_scores = []
 
         if 'seed' in testfunction:
@@ -88,7 +88,7 @@ class SymbalTest:
             x_cand = datobj.candidates.drop('output', axis=1)
             x_exist = datobj.initial_set.drop('output', axis=1)
 
-            objective_array = objective(x_cand, x_exist, pysr_model, acquisition, batch_config)
+            objective_array = objective(datobj.candidates, datobj.initial_set, pysr_model, acquisition, batch_config)
             x_cand.insert(0, 'objective', objective_array)
 
             selected_indices, captured_penalties = bs(np.array(x_cand), batch_size=batch_size, **batch_config)
@@ -113,4 +113,5 @@ class SymbalTest:
             scores_dict = {'equation': equations, 'holdout': holdout_scores, 'existing': existing_scores,
                            'loss': losses, 'score': best_scores, 'loss_other': losses_other,
                            'score_other': scores_other}
+
         self.scores = pd.DataFrame(scores_dict)

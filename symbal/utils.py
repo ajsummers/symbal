@@ -89,7 +89,7 @@ def get_gradient(cand_df, pysr_model, num=None, difference=None):
             overall.loc[:, f'd__{column}'] = (overall.loc[:, f'fh__{column}'] -
                                               pysr_model.predict(cand_df, num)) / difference
         else:
-            overall.loc[:, f'fh__{column}'] = pysr_model.predict(cand_df[column])
+            overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column])
             overall.loc[:, f'd__{column}'] = (overall.loc[:, f'fh__{column}'] -
                                               pysr_model.predict(cand_df)) / difference
 
