@@ -1,5 +1,6 @@
+import copy
 
-from symbal.utils import get_gradient, get_curvature, get_uncertainties, get_fim
+from symbal.utils import get_gradient, get_curvature, get_uncertainties, get_fim, get_optimal_krr
 import numpy as np
 import scipy as sp
 # import random
@@ -7,6 +8,7 @@ from scipy.spatial.distance import cdist
 from sklearn.preprocessing import StandardScaler
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
+from scipy.interpolate import Rbf
 
 
 def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
@@ -91,6 +93,10 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
     if 'boundary' in acquisition:
         values = _boundary(x_cand, pysr_model, batch_config)
         objective_array += acquisition['boundary'] * values
+
+    if 'leaveoneout' in acquisition:
+        scorediffs = _leaveoneout(cand_df, exist_df, batch_config)
+        objective_array += acquisition['leaveoneout'] * scorediffs
 
     if 'debug' in batch_config:
         if batch_config['debug']:
@@ -377,6 +383,58 @@ def _boundary(x_cand, pysr_model, batch_config):
     values = __scale_objective(values, batch_config)
 
     return values
+
+
+def _leaveoneout(cand_df, exist_df, batch_config):
+
+    cand_dfc = copy.deepcopy(cand_df)
+    exist_dfc = copy.deepcopy(exist_df)
+
+    alpha_number = batch_config['alpha_number'] if 'alpha_number' in batch_config else 10
+
+    if 'krr_param_grid' in batch_config:
+        krr_param_grid = batch_config['krr_param_grid']
+    else:
+        krr_param_grid = {
+            'alpha': [alpha for alpha in np.geomspace(1e-4, 1e4, alpha_number)],
+            'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+            'degree': [2, 3],
+        }
+
+    Scaler = batch_config['scaler'] if 'scaler' in batch_config else StandardScaler
+    grid_rounds = batch_config['grid_rounds'] if 'grid_rounds' in batch_config else 2
+    interp_func = batch_config['interp_func'] if 'interp_func' in batch_config else 'multiquadric'
+
+    scaler = Scaler()
+    x_exist_scaled = scaler.fit_transform(exist_dfc.drop('output', axis=1))
+    y_exist = exist_dfc['output']
+
+    krr_model = get_optimal_krr(x_exist_scaled, y_exist, krr_param_grid, grid_rounds, alpha_number)
+    initial_score = krr_model.best_score_
+
+    exist_dfc['score_diff'] = 0
+
+    for i, _ in enumerate(exist_dfc.iterrows()):
+
+        exist_minus = exist_dfc.drop(i)
+
+        scaler = Scaler()
+        x_minus_scaled = scaler.fit_transform(exist_minus.drop(['output', 'score_diff'], axis=1))
+        y_minus = exist_minus['output']
+
+        krr_model = get_optimal_krr(x_minus_scaled, y_minus, krr_param_grid, grid_rounds, alpha_number)
+        minus_score = krr_model.best_score_
+        score_diff = initial_score - minus_score
+        exist_dfc.loc[i, 'score_diff'] = score_diff
+
+    exist_dfc = exist_dfc.drop('output', axis=1)
+    cand_dfc = cand_dfc.drop('output', axis=1)
+
+    rbf = Rbf(*[np.array(exist_dfc[column]) for column in list(exist_dfc.columns)], function=interp_func)
+    scorediffs = rbf(*[np.array(cand_dfc[column]) for column in list(cand_dfc.columns)])
+    scorediffs = __scale_objective(scorediffs, batch_config)
+
+    return scorediffs
 
 
 def __scale_objective(objective_array, batch_config):

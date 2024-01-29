@@ -9,6 +9,8 @@ import sympy
 
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, PolynomialFeatures
 from sklearn.linear_model import Lasso
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.model_selection import GridSearchCV
 from typing import Union, List
 from pysr import PySRRegressor
 from scipy.spatial.distance import cdist
@@ -296,3 +298,22 @@ def get_class_scores(exist_df, pysr_model):
     mod_class_score = np.mean(mod_class_scores)
 
     return class_score, mod_class_score
+
+
+def get_optimal_krr(x_exist_scaled, y_exist, krr_param_grid, grid_rounds, alpha_number):
+
+    krr_model = GridSearchCV(KernelRidge(), param_grid=krr_param_grid)
+    krr_model.fit(x_exist_scaled, y_exist)
+
+    for _ in range(grid_rounds):
+
+        best_alpha = krr_model.best_params_['alpha']
+        alpha_space = krr_param_grid['alpha'][1] / krr_param_grid['alpha'][0]
+        new_alphas = [alpha for alpha in np.geomspace(best_alpha/alpha_space, best_alpha*alpha_space, alpha_number)]
+        krr_param_grid['alpha'] = new_alphas
+
+        krr_model = GridSearchCV(KernelRidge(), param_grid=krr_param_grid)
+        krr_model.fit(x_exist_scaled, y_exist)
+
+    return krr_model
+
