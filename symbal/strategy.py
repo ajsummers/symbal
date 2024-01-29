@@ -1,7 +1,8 @@
 
-from symbal.utils import get_gradient, get_curvature, get_uncertainties
+from symbal.utils import get_gradient, get_curvature, get_uncertainties, get_fim
 import numpy as np
 import scipy as sp
+# import random
 from scipy.spatial.distance import cdist
 from sklearn.preprocessing import StandardScaler
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -55,6 +56,10 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
         random_array = _rand1(x_cand)
         objective_array += acquisition['rand1'] * random_array
 
+    # if 'rand2' in acquisition:
+    #     random_array = _rand2(x_cand)
+    #     objective_array += acquisition['rand2'] * random_array
+
     if 'grad1' in acquisition:
         gradients = _grad1(x_cand, pysr_model, batch_config)
         objective_array += acquisition['grad1'] * gradients
@@ -70,6 +75,22 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
     if 'know_grad' in acquisition:
         gradients = _know_grad(cand_df, exist_df, batch_config)
         objective_array += acquisition['know_grad'] * gradients
+
+    if 'Aopt' in acquisition:
+        traces = _aopt(x_cand, pysr_model, batch_config)
+        objective_array += acquisition['Aopt'] * traces
+
+    if 'Dopt' in acquisition:
+        dets = _dopt(x_cand, pysr_model, batch_config)
+        objective_array += acquisition['Dopt'] * dets
+
+    if 'Eopt' in acquisition:
+        mineigs = _eopt(x_cand, pysr_model, batch_config)
+        objective_array += acquisition['Eopt'] * mineigs
+
+    if 'boundary' in acquisition:
+        values = _boundary(x_cand, pysr_model, batch_config)
+        objective_array += acquisition['boundary'] * values
 
     if 'debug' in batch_config:
         if batch_config['debug']:
@@ -212,6 +233,11 @@ def _rand1(x_cand):
     return random_array
 
 
+# def _rand2(x_cand):
+#
+#     random_array = np.zeros(shape=(len(x_cand),))
+
+
 def _grad1(x_cand, pysr_model, batch_config):
 
     if 'difference' in batch_config:
@@ -267,6 +293,90 @@ def _know_grad(cand_df, exist_df, batch_config):
     gradients = __scale_objective(gradients, batch_config)
 
     return gradients
+
+
+def _aopt(x_cand, pysr_model, batch_config):
+
+    if 'difference' in batch_config:
+        difference = batch_config['difference']
+    else:
+        difference = 1e-8
+
+    traces = np.zeros((len(x_cand),))
+
+    if 'subset' in batch_config:
+        x_cand = x_cand.sample(batch_config['subset'])
+
+    for i, cand in enumerate(list(x_cand.index)):
+        fim = get_fim(x_cand.loc[cand, :], pysr_model, single=True, difference=difference)
+        traces[cand] = np.trace(fim)
+
+    traces = __scale_objective(traces, batch_config)
+
+    return traces
+
+
+def _dopt(x_cand, pysr_model, batch_config):
+
+    if 'difference' in batch_config:
+        difference = batch_config['difference']
+    else:
+        difference = 1e-8
+
+    dets = np.zeros((len(x_cand),))
+
+    if 'subset' in batch_config:
+        x_cand = x_cand.sample(batch_config['subset'])
+
+    for i, cand in enumerate(list(x_cand.index)):
+        fim = get_fim(x_cand.loc[cand, :], pysr_model, single=True, difference=difference)
+        dets[cand] = np.linalg.det(fim)
+
+    dets = __scale_objective(dets, batch_config)
+
+    return dets
+
+
+def _eopt(x_cand, pysr_model, batch_config):
+
+    if 'difference' in batch_config:
+        difference = batch_config['difference']
+    else:
+        difference = 1e-8
+
+    mineigs = np.zeros((len(x_cand),))
+
+    if 'subset' in batch_config:
+        x_cand = x_cand.sample(batch_config['subset'])
+
+    for i, cand in enumerate(list(x_cand.index)):
+        fim = get_fim(x_cand.loc[cand, :], pysr_model, single=True, difference=difference)
+        mineigs[cand] = np.min(np.linalg.eigvals(fim))
+
+    mineigs = __scale_objective(mineigs, batch_config)
+
+    return mineigs
+
+
+def _boundary(x_cand, pysr_model, batch_config):
+
+    if 'power' in batch_config:
+        power = batch_config['power']
+    else:
+        power = 1
+
+    y_pred = pysr_model.predict(x_cand)
+
+    if 'scale_pred' in batch_config:
+        if batch_config['scale_pred']:
+            y_pred = y_pred / np.ptp(y_pred)
+    else:
+        y_pred = y_pred / np.ptp(y_pred)
+
+    values = np.exp(-np.abs(y_pred) ** power)
+    values = __scale_objective(values, batch_config)
+
+    return values
 
 
 def __scale_objective(objective_array, batch_config):

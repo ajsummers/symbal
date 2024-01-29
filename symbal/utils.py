@@ -3,6 +3,15 @@ import copy
 import numpy as np
 from symbal.penalties import invquad_penalty
 import pandas as pd
+import warnings
+import itertools
+import sympy
+
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, PolynomialFeatures
+from sklearn.linear_model import Lasso
+from typing import Union, List
+from pysr import PySRRegressor
+from scipy.spatial.distance import cdist
 
 
 def new_penalty(penalty_array, penalty_function, a, b, by_range, batch_size):
@@ -73,25 +82,25 @@ def get_metrics(pysr_model):
     return equation, loss, score, loss_other, score_other
 
 
-def get_gradient(cand_df, pysr_model, num=None, difference=None):
+def get_gradient(x_cand, pysr_model, num=None, difference=None):
 
     if difference is None:
         difference = 1e-8
 
-    overall = copy.deepcopy(cand_df)
+    overall = copy.deepcopy(x_cand)
     diff_dict = {
-        column: pd.concat([cand_df.loc[:, column] + difference, cand_df.drop(column, axis=1)], axis=1)
-        for column in cand_df
+        column: pd.concat([x_cand.loc[:, column] + difference, x_cand.drop(column, axis=1)], axis=1)
+        for column in x_cand
     }
-    for column in cand_df:
+    for column in x_cand:
         if num is not None:
             overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column], num)
             overall.loc[:, f'd__{column}'] = (overall.loc[:, f'fh__{column}'] -
-                                              pysr_model.predict(cand_df, num)) / difference
+                                              pysr_model.predict(x_cand, num)) / difference
         else:
             overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column])
             overall.loc[:, f'd__{column}'] = (overall.loc[:, f'fh__{column}'] -
-                                              pysr_model.predict(cand_df)) / difference
+                                              pysr_model.predict(x_cand)) / difference
 
     grad_string = 'sqrt('
     for column in overall:
@@ -103,30 +112,30 @@ def get_gradient(cand_df, pysr_model, num=None, difference=None):
     return np.array(overall['grad'])
 
 
-def get_curvature(cand_df, pysr_model, num=None, difference=None):
+def get_curvature(x_cand, pysr_model, num=None, difference=None):
 
     if difference is None:
         difference = 1e-8
 
-    overall = copy.deepcopy(cand_df)
+    overall = copy.deepcopy(x_cand)
     diff_dict = {
-        column: pd.concat([cand_df.loc[:, column] + difference, cand_df.drop(column, axis=1)], axis=1)
-        for column in cand_df
+        column: pd.concat([x_cand.loc[:, column] + difference, x_cand.drop(column, axis=1)], axis=1)
+        for column in x_cand
     }
     diff2_dict = {
-        column: pd.concat([cand_df.loc[:, column] + 2*difference, cand_df.drop(column, axis=1)], axis=1)
-        for column in cand_df
+        column: pd.concat([x_cand.loc[:, column] + 2 * difference, x_cand.drop(column, axis=1)], axis=1)
+        for column in x_cand
     }
-    for column in cand_df:
+    for column in x_cand:
         if num is not None:
             overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column], num)
             overall.loc[:, f'f2h__{column}'] = pysr_model.predict(diff2_dict[column], num)
-            overall.loc[:, f'd2__{column}'] = (pysr_model.predict(cand_df, num) - 2*overall.loc[:, f'fh__{column}'] +
+            overall.loc[:, f'd2__{column}'] = (pysr_model.predict(x_cand, num) - 2 * overall.loc[:, f'fh__{column}'] +
                                                overall.loc[:, f'f2h__{column}']) / difference ** 2
         else:
             overall.loc[:, f'fh__{column}'] = pysr_model.predict(diff_dict[column])
             overall.loc[:, f'f2h__{column}'] = pysr_model.predict(diff2_dict[column])
-            overall.loc[:, f'd2__{column}'] = (pysr_model.predict(cand_df) - 2*overall.loc[:, f'fh__{column}'] +
+            overall.loc[:, f'd2__{column}'] = (pysr_model.predict(x_cand) - 2 * overall.loc[:, f'fh__{column}'] +
                                                overall.loc[:, f'f2h__{column}']) / difference ** 2
 
     lapl_string = ''
@@ -139,23 +148,151 @@ def get_curvature(cand_df, pysr_model, num=None, difference=None):
     return np.array(overall['lapl'])
 
 
-def get_all_gradients(cand_df, pysr_model, difference=1e-8):
+def get_all_gradients(x_cand, pysr_model, difference=1e-8):
 
-    gradients = np.empty((len(cand_df), len(pysr_model.equations_['equation'])))
+    gradients = np.empty((len(x_cand), len(pysr_model.equations_['equation'])))
 
     for j, _ in enumerate(pysr_model.equations_['equation']):
-        gradients[:, j] = get_gradient(cand_df, pysr_model, num=j, difference=difference)
+        gradients[:, j] = get_gradient(x_cand, pysr_model, num=j, difference=difference)
 
     return gradients
 
 
-def get_uncertainties(cand_df, pysr_model):
+def get_uncertainties(x_cand, pysr_model):
 
-    uncertainties = np.empty((len(cand_df), len(pysr_model.equations_['equation'])))
-    equation_best = pysr_model.predict(cand_df)
+    uncertainties = np.empty((len(x_cand), len(pysr_model.equations_['equation'])))
+    equation_best = pysr_model.predict(x_cand)
 
     for j, _ in enumerate(pysr_model.equations_['equation']):
-        uncertainties[:, j] = pysr_model.predict(cand_df, j) - equation_best
+        uncertainties[:, j] = pysr_model.predict(x_cand, j) - equation_best
 
     return uncertainties
 
+
+class CustomStrPrinter(sympy.printing.str.StrPrinter):
+    def _print_Float(self, expr):
+        return f'{expr:.3e}'
+
+
+def get_equation(column_list: List[str], model: Lasso, scaler: Union[MinMaxScaler, StandardScaler],
+                 polynomial: PolynomialFeatures):
+
+    if isinstance(scaler, StandardScaler):
+        warnings.warn('Equation identification not yet implemented for StandardScaler.')
+        return ''
+
+    if polynomial.interaction_only:
+        warnings.warn('Equation identification not yet implemented for interaction_only option.')
+        return ''
+
+    variable_list = ['1', *column_list]
+    variable_list.extend(list(itertools.combinations_with_replacement(column_list, polynomial.degree)))
+    variable_list = np.array(['*'.join(var) if isinstance(var, tuple) else var for var in variable_list])
+
+    lasso_coef = model.coef_
+    scaler_range = scaler.data_range_
+    scaler_min = scaler.data_min_
+    intercept = model.intercept_
+
+    variable_list = variable_list[lasso_coef > 0]
+    scaler_range = scaler_range[lasso_coef > 0]
+    scaler_min = scaler_min[lasso_coef > 0]
+    lasso_coef = lasso_coef[lasso_coef > 0]
+
+    unscaled_coef = lasso_coef * scaler_range
+    adj_intercept = intercept + np.sum(lasso_coef * scaler_min)
+
+    equation_terms = [f'{coef:.3e}*{feat}' for coef, feat in zip(unscaled_coef, variable_list)]
+    equation = ' + '.join(equation_terms)
+    equation += f' + {adj_intercept:.3e}'
+
+    parsed_equation = CustomStrPrinter().doprint(sympy.parsing.sympy_parser.parse_expr(equation))
+
+    return parsed_equation
+
+
+def get_test(test_config, pysr_model):
+
+    if test_config['test_file']:
+        test_df = pd.read_csv(test_config['test_file'], index_col=0)
+    elif test_config['test_df']:
+        test_df = test_config['test_df']
+    else:
+        raise RuntimeWarning('Must set either test_file or test_df for test_config.')
+
+    test_df['pred_y'] = pysr_model.predict(test_df)
+
+    variances = test_df.groupby(test_config['groupby'])['pred_y'].var().mean()
+    error = np.sqrt(np.mean((test_df[test_config['output_name']] - test_df['pred_y']) ** 2))
+
+    total_err = error + variances
+
+    return total_err
+
+
+def get_fim(cand_set, pysr_model, single=True, num=None, difference=1e-8):
+
+    if not isinstance(pysr_model, PySRRegressor):
+        raise RuntimeWarning('Fischer information matrix (FIM) currently only defined for PySRRegressor.')
+
+    cand_set = cand_set[pysr_model.column_list]
+
+    if single:
+        cand_set = np.array([cand_set])
+    else:
+        cand_set = np.array(cand_set)
+
+    if num is None:
+        jax = pysr_model.jax()
+    else:
+        jax = pysr_model.jax(num)
+
+    parameter_set = np.array([jax['parameters'] for i, _ in enumerate(jax['parameters'])])
+    diff_vector = parameter_set.diagonal() * (1 + difference)
+    np.fill_diagonal(parameter_set, diff_vector)
+
+    fh = np.zeros((len(cand_set), len(jax['parameters'])))
+    f = np.zeros((len(cand_set), len(jax['parameters'])))
+
+    for i, _ in enumerate(cand_set):
+        for j, _ in enumerate(jax['parameters']):
+            fh[i, j] = jax['callable'](np.array([cand_set[i, :]]), parameter_set[j])[0]
+            f[i, j] = jax['callable'](np.array([cand_set[i, :]]), jax['parameters'])[0]
+
+    q = (fh - f) / (parameter_set.diagonal() * difference)
+    fim = np.outer(q, q.T)
+
+    return fim
+
+
+def get_distances(exist_df, x_cand):
+
+    act_y = np.array(exist_df['output'])
+    boundary_distance = np.mean(np.abs(act_y))
+
+    x_exist = exist_df.drop('output', axis=1)
+
+    exist_array = np.array(x_exist)
+    cand_array = np.array(x_cand)
+
+    exist_norm = (exist_array - np.min(cand_array, axis=0)) / np.ptp(cand_array, axis=0)
+
+    point_distances = cdist(exist_norm, exist_norm)
+    point_distance = np.mean(point_distances)
+
+    return boundary_distance, point_distance
+
+
+def get_class_scores(exist_df, pysr_model):
+
+    y_act = np.array(exist_df['output'])
+    act_x = exist_df.drop('output', axis=1)
+
+    y_pred = pysr_model.predict(act_x)
+    class_scores = np.abs(np.sign(y_act) - np.sign(y_pred)) / 2
+    mod_class_scores = class_scores * np.exp(-np.sqrt(np.abs(y_act) / np.ptp(y_act)))
+
+    class_score = np.mean(class_scores)
+    mod_class_score = np.mean(mod_class_scores)
+
+    return class_score, mod_class_score
