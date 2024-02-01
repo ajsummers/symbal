@@ -1,4 +1,4 @@
-# Copyright 2023 Alex Summers
+# Copyright 2024 Alex Summers
 # See LICENSE file for more information
 
 import sys
