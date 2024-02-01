@@ -10,6 +10,7 @@ import sympy
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, PolynomialFeatures
 from sklearn.linear_model import Lasso
 from sklearn.kernel_ridge import KernelRidge
+from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.model_selection import GridSearchCV
 from typing import Union, List
 from pysr import PySRRegressor
@@ -317,3 +318,20 @@ def get_optimal_krr(x_exist_scaled, y_exist, krr_param_grid, grid_rounds, alpha_
 
     return krr_model
 
+
+def get_optimal_gpr(x_exist_scaled, y_exist, gpr_param_grid, grid_rounds, alpha_number):
+
+    gpr_model = GridSearchCV(GaussianProcessRegressor(), param_grid=gpr_param_grid)
+    gpr_model.fit(x_exist_scaled, y_exist)
+
+    for _ in range(grid_rounds):
+
+        best_alpha = gpr_model.best_params_['alpha']
+        alpha_space = gpr_param_grid['alpha'][1] / gpr_param_grid['alpha'][0]
+        new_alphas = [alpha for alpha in np.geomspace(best_alpha / alpha_space, best_alpha * alpha_space, alpha_number)]
+        gpr_param_grid['alpha'] = new_alphas
+
+        gpr_model = GridSearchCV(GaussianProcessRegressor(), param_grid=gpr_param_grid)
+        gpr_model.fit(x_exist_scaled, y_exist)
+
+    return gpr_model

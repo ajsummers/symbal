@@ -1,13 +1,14 @@
 import copy
 
-from symbal.utils import get_gradient, get_curvature, get_uncertainties, get_fim, get_optimal_krr
+from symbal.utils import get_gradient, get_curvature, get_uncertainties
+from symbal.utils import get_fim, get_optimal_krr, get_optimal_gpr
 import numpy as np
 import scipy as sp
 # import random
 from scipy.spatial.distance import cdist
 from sklearn.preprocessing import StandardScaler
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern, WhiteKernel
+from sklearn.gaussian_process.kernels import Matern, WhiteKernel, RationalQuadratic
 from scipy.interpolate import Rbf
 
 
@@ -97,6 +98,10 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
     if 'leaveoneout' in acquisition:
         scorediffs = _leaveoneout(cand_df, exist_df, batch_config)
         objective_array += acquisition['leaveoneout'] * scorediffs
+
+    if 'GUGS' in acquisition:
+        uncertainties = _gugs(cand_df, exist_df, batch_config)
+        objective_array += acquisition['GUGS'] * uncertainties
 
     if 'debug' in batch_config:
         if batch_config['debug']:
@@ -435,6 +440,37 @@ def _leaveoneout(cand_df, exist_df, batch_config):
     scorediffs = __scale_objective(scorediffs, batch_config)
 
     return scorediffs
+
+
+def _gugs(cand_df, exist_df, batch_config):  # Gaussian Uncertainty with Grid Search
+
+    alpha_number = batch_config['alpha_number'] if 'alpha_number' in batch_config else 10
+
+    if 'gpr_param_grid' in batch_config:
+        gpr_param_grid = batch_config['gpr_param_grid']
+    else:
+        gpr_param_grid = {
+            'kernel': [
+                RationalQuadratic(alpha=0.1, length_scale=0.1)
+            ],
+            'alpha': np.geomspace(1e-4, 1e4, alpha_number),
+            'n_restarts_optimizer': [0, 5, 10]
+        }
+
+    Scaler = batch_config['scaler'] if 'scaler' in batch_config else StandardScaler
+    grid_rounds = batch_config['grid_rounds'] if 'grid_rounds in batch_config' else 2
+
+    scaler = Scaler()
+    x_exist_scaled = scaler.fit_transform(exist_df.drop('output', axis=1))
+    y_exist = exist_df['output']
+
+    gpr_model = get_optimal_gpr(x_exist_scaled, y_exist, gpr_param_grid, grid_rounds, alpha_number)
+
+    x_cand_scaled = scaler.transform(cand_df.drop('output', axis=1))
+    _,  y_cand_std = gpr_model.best_estimator_.predict(x_cand_scaled, return_std=True)
+    y_cand_std = __scale_objective(y_cand_std, batch_config)
+
+    return y_cand_std
 
 
 def __scale_objective(objective_array, batch_config):
