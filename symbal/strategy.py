@@ -458,7 +458,7 @@ def _gugs(cand_df, exist_df, batch_config):  # Gaussian Uncertainty with Grid Se
         }
 
     Scaler = batch_config['scaler'] if 'scaler' in batch_config else StandardScaler
-    grid_rounds = batch_config['grid_rounds'] if 'grid_rounds in batch_config' else 2
+    grid_rounds = batch_config['grid_rounds'] if 'grid_rounds' in batch_config else 2
 
     scaler = Scaler()
     x_exist_scaled = scaler.fit_transform(exist_df.drop('output', axis=1))
