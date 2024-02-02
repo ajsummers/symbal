@@ -4,12 +4,12 @@ from symbal.utils import get_gradient, get_curvature, get_uncertainties
 from symbal.utils import get_fim, get_optimal_krr, get_optimal_gpr
 import numpy as np
 import scipy as sp
-# import random
 from scipy.spatial.distance import cdist
 from sklearn.preprocessing import StandardScaler
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern, WhiteKernel, RationalQuadratic
+from sklearn.gaussian_process.kernels import Matern, RationalQuadratic
 from scipy.interpolate import Rbf
+from operator import itemgetter
 
 
 def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
@@ -17,91 +17,38 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
     x_cand = cand_df.drop('output', axis=1)
     x_exist = exist_df.drop('output', axis=1)
 
+    function_dict = {
+        'gradient':     {'func': _gradient,     'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'curvature':    {'func': _curvature,    'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'grad1':        {'func': _grad1,        'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'curv1':        {'func': _curv1,        'params': {'x_cand', 'pysr_model',  'batch_config'}, 'scale': True},
+        'uncertainty':  {'func': _uncertainty,  'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'certainty':    {'func': _certainty,    'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'Aopt':         {'func': _aopt,         'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'Dopt':         {'func': _dopt,         'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'Eopt':         {'func': _eopt,         'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'boundary':     {'func': _boundary,     'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
+        'distance':     {'func': _distance,     'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
+        'proximity':    {'func': _proximity,    'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
+        'density':      {'func': _density,      'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
+        'sparsity':     {'func': _sparsity,     'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
+        'gaussian_unc': {'func': _gaussian_unc, 'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
+        'know_grad':    {'func': _know_grad,    'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
+        'leaveoneout':  {'func': _leaveoneout,  'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
+        'GUGS':         {'func': _gugs,         'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
+        'random':       {'func': _random,       'params': ['x_cand'],                                'scale': False},
+        'rand1':        {'func': _rand1,        'params': ['x_cand'],                                'scale': False},
+    }
+    param_dict = {'cand_df': cand_df, 'exist_df': exist_df, 'x_cand': x_cand, 'x_exist': x_exist,
+                  'pysr_model': pysr_model, 'batch_config': batch_config}
+
     objective_array = np.zeros((len(x_cand)))
 
-    if 'gradient' in acquisition:
-        gradients = _gradient(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['gradient'] * gradients
+    for method in acquisition:
 
-    if 'curvature' in acquisition:
-        curvatures = _curvature(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['curvature'] * curvatures
-
-    if 'distance' in acquisition:
-        distances = _distance(x_cand, x_exist, batch_config)
-        objective_array += acquisition['distance'] * distances
-
-    if 'proximity' in acquisition:
-        proximities = _proximity(x_cand, x_exist, batch_config)
-        objective_array += acquisition['proximity'] * proximities
-
-    if 'density' in acquisition:
-        densities = _density(x_cand, x_exist, batch_config)
-        objective_array += acquisition['density'] * densities
-
-    if 'sparsity' in acquisition:
-        sparsities = _sparsity(x_cand, x_exist, batch_config)
-        objective_array += acquisition['sparsity'] * sparsities
-
-    if 'uncertainty' in acquisition:
-        uncertainties = _uncertainty(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['uncertainty'] * uncertainties
-
-    if 'certainty' in acquisition:
-        certainties = _certainty(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['certainty'] * certainties
-
-    if 'random' in acquisition:
-        random_array = _random(x_cand)
-        objective_array += acquisition['random'] * random_array
-
-    if 'rand1' in acquisition:
-        random_array = _rand1(x_cand)
-        objective_array += acquisition['rand1'] * random_array
-
-    # if 'rand2' in acquisition:
-    #     random_array = _rand2(x_cand)
-    #     objective_array += acquisition['rand2'] * random_array
-
-    if 'grad1' in acquisition:
-        gradients = _grad1(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['grad1'] * gradients
-
-    if 'curv1' in acquisition:
-        curvatures = _curv1(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['curv1'] * curvatures
-
-    if 'gaussian_unc' in acquisition:
-        uncertainties = _gaussian_unc(cand_df, exist_df, batch_config)
-        objective_array += acquisition['gaussian_unc'] * uncertainties
-
-    if 'know_grad' in acquisition:
-        gradients = _know_grad(cand_df, exist_df, batch_config)
-        objective_array += acquisition['know_grad'] * gradients
-
-    if 'Aopt' in acquisition:
-        traces = _aopt(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['Aopt'] * traces
-
-    if 'Dopt' in acquisition:
-        dets = _dopt(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['Dopt'] * dets
-
-    if 'Eopt' in acquisition:
-        mineigs = _eopt(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['Eopt'] * mineigs
-
-    if 'boundary' in acquisition:
-        values = _boundary(x_cand, pysr_model, batch_config)
-        objective_array += acquisition['boundary'] * values
-
-    if 'leaveoneout' in acquisition:
-        scorediffs = _leaveoneout(cand_df, exist_df, batch_config)
-        objective_array += acquisition['leaveoneout'] * scorediffs
-
-    if 'GUGS' in acquisition:
-        uncertainties = _gugs(cand_df, exist_df, batch_config)
-        objective_array += acquisition['GUGS'] * uncertainties
+        values = function_dict[method]['func'](*itemgetter(*function_dict[method]['params'])(param_dict))
+        values = _scale_objective(values, batch_config) if function_dict[method]['scale'] else values
+        objective_array += acquisition[method] * values
 
     if 'debug' in batch_config:
         if batch_config['debug']:
@@ -115,10 +62,7 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
 
 def _gradient(x_cand, pysr_model, batch_config):
 
-    if 'difference' in batch_config:
-        difference = batch_config['difference']
-    else:
-        difference = 1e-8
+    difference = batch_config['difference'] if 'difference' in batch_config else 1e-8
 
     gradient_array = np.empty((len(x_cand), len(pysr_model.equations_['equation'])))
     for j, _ in enumerate(pysr_model.equations_['equation']):
@@ -130,17 +74,12 @@ def _gradient(x_cand, pysr_model, batch_config):
             gradient_array = gradient_array * scores
 
     gradients = np.sum(np.abs(gradient_array), axis=1)
-    gradients = __scale_objective(gradients, batch_config)
-
     return gradients
 
 
 def _curvature(x_cand, pysr_model, batch_config):
 
-    if 'difference' in batch_config:
-        difference = batch_config['difference']
-    else:
-        difference = 1e-8
+    difference = batch_config['difference'] if 'difference' in batch_config else 1e-8
 
     curvature_array = np.empty((len(x_cand), len(pysr_model.equations_['equation'])))
     for j, _ in enumerate(pysr_model.equations_['equation']):
@@ -152,17 +91,12 @@ def _curvature(x_cand, pysr_model, batch_config):
             curvature_array = curvature_array * scores
 
     curvatures = np.sum(np.abs(curvature_array), axis=1)
-    curvatures = __scale_objective(curvatures, batch_config)
-
     return curvatures
 
 
 def _distance(x_cand, x_exist, batch_config):
 
-    if 'distance_metric' in batch_config:
-        distance_metric = batch_config['distance_metric']
-    else:
-        distance_metric = 'euclidean'
+    distance_metric = batch_config['distance_metric'] if 'distance_metric' in batch_config else 'euclidean'
 
     cand_array = np.array(x_cand)
     exist_array = np.array(x_exist)
@@ -171,23 +105,17 @@ def _distance(x_cand, x_exist, batch_config):
 
     dist_array = cdist(cand_norm, exist_norm, metric=distance_metric)
     dist_vector = np.min(dist_array, axis=1)
-
     return dist_vector
 
 
 def _proximity(x_cand, x_exist, batch_config):
-
     dist_vector = _distance(x_cand, x_exist, batch_config)
-
     return -dist_vector
 
 
 def _density(x_cand, x_exist, batch_config):
 
-    if 'distance_metric' in batch_config:
-        distance_metric = batch_config['distance_metric']
-    else:
-        distance_metric = 'euclidean'
+    distance_metric = batch_config['distance_metric'] if 'distance_metric' in batch_config else 'euclidean'
 
     cand_array = np.array(x_cand)
     exist_array = np.array(x_exist)
@@ -196,14 +124,11 @@ def _density(x_cand, x_exist, batch_config):
 
     dist_array = cdist(cand_norm, exist_norm, metric=distance_metric)
     dens_vector = np.mean(dist_array, axis=1)
-
     return dens_vector
 
 
 def _sparsity(x_cand, x_exist, batch_config):
-
     dens_vector = _density(x_cand, x_exist, batch_config)
-
     return -dens_vector
 
 
@@ -217,22 +142,16 @@ def _uncertainty(x_cand, pysr_model, batch_config):
             uncertainty_array = uncertainty_array * scores
 
     uncertainties = np.sum(np.abs(uncertainty_array), axis=1)
-    uncertainties = __scale_objective(uncertainties, batch_config)
-
     return uncertainties
 
 
 def _certainty(x_cand, pysr_model, batch_config):
-
     uncertainties = _uncertainty(x_cand, pysr_model, batch_config)
-
     return -uncertainties
 
 
 def _random(x_cand):
-
     random_array = np.random.uniform(size=(len(x_cand),))
-
     return random_array
 
 
@@ -240,50 +159,27 @@ def _rand1(x_cand):
 
     random_array = np.random.normal(size=(len(x_cand),))
     random_array = (random_array - np.min(random_array)) / np.ptp(random_array)
-
     return random_array
-
-
-# def _rand2(x_cand):
-#
-#     random_array = np.zeros(shape=(len(x_cand),))
 
 
 def _grad1(x_cand, pysr_model, batch_config):
 
-    if 'difference' in batch_config:
-        difference = batch_config['difference']
-    else:
-        difference = 1e-8
-
+    difference = batch_config['difference'] if 'difference' in batch_config else 1e-8
     gradient_array = get_gradient(x_cand, pysr_model, difference=difference)
-
     gradients = np.abs(gradient_array)
-    gradients = __scale_objective(gradients, batch_config)
-
     return gradients
 
 
 def _curv1(x_cand, pysr_model, batch_config):
 
-    if 'difference' in batch_config:
-        difference = batch_config['difference']
-    else:
-        difference = 1e-8
-
+    difference = batch_config['difference'] if 'difference' in batch_config else 1e-8
     curvature_array = get_curvature(x_cand, pysr_model, difference=difference)
-
     curvatures = np.abs(curvature_array)
-    curvatures = __scale_objective(curvatures, batch_config)
-
     return curvatures
 
 
 def _gaussian_unc(cand_df, exist_df, batch_config):
-
     _, y_cand_std = __gaussian_fit(cand_df, exist_df, batch_config)
-    y_cand_std = __scale_objective(y_cand_std, batch_config)
-
     return y_cand_std
 
 
@@ -301,18 +197,13 @@ def _know_grad(cand_df, exist_df, batch_config):
 
     gradients = np.zeros(shape=y_cand_mean.shape)
     gradients[z != 0.] = y_cand_std[z != 0.] * cdf[z != 0.] + pdf[z != 0.]
-    gradients = __scale_objective(gradients, batch_config)
 
     return gradients
 
 
 def _aopt(x_cand, pysr_model, batch_config):
 
-    if 'difference' in batch_config:
-        difference = batch_config['difference']
-    else:
-        difference = 1e-8
-
+    difference = batch_config['difference'] if 'difference' in batch_config else 1e-8
     traces = np.zeros((len(x_cand),))
 
     if 'subset' in batch_config:
@@ -322,18 +213,12 @@ def _aopt(x_cand, pysr_model, batch_config):
         fim = get_fim(x_cand.loc[cand, :], pysr_model, single=True, difference=difference)
         traces[cand] = np.trace(fim)
 
-    traces = __scale_objective(traces, batch_config)
-
     return traces
 
 
 def _dopt(x_cand, pysr_model, batch_config):
 
-    if 'difference' in batch_config:
-        difference = batch_config['difference']
-    else:
-        difference = 1e-8
-
+    difference = batch_config['difference'] if 'difference' in batch_config else 1e-8
     dets = np.zeros((len(x_cand),))
 
     if 'subset' in batch_config:
@@ -343,18 +228,12 @@ def _dopt(x_cand, pysr_model, batch_config):
         fim = get_fim(x_cand.loc[cand, :], pysr_model, single=True, difference=difference)
         dets[cand] = np.linalg.det(fim)
 
-    dets = __scale_objective(dets, batch_config)
-
     return dets
 
 
 def _eopt(x_cand, pysr_model, batch_config):
 
-    if 'difference' in batch_config:
-        difference = batch_config['difference']
-    else:
-        difference = 1e-8
-
+    difference = batch_config['difference'] if 'difference' in batch_config else 1e-8
     mineigs = np.zeros((len(x_cand),))
 
     if 'subset' in batch_config:
@@ -364,17 +243,12 @@ def _eopt(x_cand, pysr_model, batch_config):
         fim = get_fim(x_cand.loc[cand, :], pysr_model, single=True, difference=difference)
         mineigs[cand] = np.min(np.linalg.eigvals(fim))
 
-    mineigs = __scale_objective(mineigs, batch_config)
-
     return mineigs
 
 
 def _boundary(x_cand, pysr_model, batch_config):
 
-    if 'power' in batch_config:
-        power = batch_config['power']
-    else:
-        power = 1
+    power = batch_config['power'] if 'power' in batch_config else 1
 
     y_pred = pysr_model.predict(x_cand)
 
@@ -385,8 +259,6 @@ def _boundary(x_cand, pysr_model, batch_config):
         y_pred = y_pred / np.ptp(y_pred)
 
     values = np.exp(-np.abs(y_pred) ** power)
-    values = __scale_objective(values, batch_config)
-
     return values
 
 
@@ -437,7 +309,6 @@ def _leaveoneout(cand_df, exist_df, batch_config):
 
     rbf = Rbf(*[np.array(exist_dfc[column]) for column in list(exist_dfc.columns)], function=interp_func)
     scorediffs = rbf(*[np.array(cand_dfc[column]) for column in list(cand_dfc.columns)])
-    scorediffs = __scale_objective(scorediffs, batch_config)
 
     return scorediffs
 
@@ -450,9 +321,7 @@ def _gugs(cand_df, exist_df, batch_config):  # Gaussian Uncertainty with Grid Se
         gpr_param_grid = batch_config['gpr_param_grid']
     else:
         gpr_param_grid = {
-            'kernel': [
-                RationalQuadratic(alpha=0.1, length_scale=0.1)
-            ],
+            'kernel': [RationalQuadratic(alpha=0.1, length_scale=0.1)],
             'alpha': np.geomspace(1e-4, 1e4, alpha_number),
             'n_restarts_optimizer': [0, 5, 10]
         }
@@ -468,12 +337,11 @@ def _gugs(cand_df, exist_df, batch_config):  # Gaussian Uncertainty with Grid Se
 
     x_cand_scaled = scaler.transform(cand_df.drop('output', axis=1))
     _,  y_cand_std = gpr_model.best_estimator_.predict(x_cand_scaled, return_std=True)
-    y_cand_std = __scale_objective(y_cand_std, batch_config)
 
     return y_cand_std
 
 
-def __scale_objective(objective_array, batch_config):
+def _scale_objective(objective_array, batch_config):
 
     if 'standard' in batch_config:
         if batch_config['standard']:
@@ -489,16 +357,8 @@ def __scale_objective(objective_array, batch_config):
 
 def __gaussian_fit(cand_df, exist_df, batch_config):
 
-    if 'scaler' in batch_config:
-        scaler = batch_config['scaler']
-    else:
-        scaler = StandardScaler()
-
-    if 'gpr' in batch_config:
-        gpr = batch_config['gpr']
-    else:
-        kernel = Matern(nu=0.501) + WhiteKernel()
-        gpr = GaussianProcessRegressor(kernel=kernel)
+    scaler = batch_config['scaler'] if 'scaler' in batch_config else StandardScaler()
+    gpr = batch_config['gpr'] if 'gpr' in batch_config else gpr = GaussianProcessRegressor(kernel=Matern(nu=0.5))
 
     x_exist = np.array(exist_df.drop('output', axis=1))
     y_exist = np.array(exist_df['output'])
@@ -509,8 +369,5 @@ def __gaussian_fit(cand_df, exist_df, batch_config):
 
     gpr.fit(x_exist_norm, y_exist)
     y_cand_mean, y_cand_std = gpr.predict(x_cand_norm, return_std=True)
-
-    # y_cand_mean = y_cand_mean.reshape(-1, 1)
-    # y_cand_std = y_cand_std.reshape(-1, 1)
 
     return y_cand_mean, y_cand_std
