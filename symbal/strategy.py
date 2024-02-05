@@ -35,6 +35,7 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
         'gaussian_unc': {'func': _gaussian_unc, 'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'know_grad':    {'func': _know_grad,    'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'leaveoneout':  {'func': _leaveoneout,  'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
+        'LOOA':         {'func': _looa,         'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'GUGS':         {'func': _gugs,         'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'random':       {'func': _random,       'params': ['x_cand'],                                'scale': False},
         'rand1':        {'func': _rand1,        'params': ['x_cand'],                                'scale': False},
@@ -45,6 +46,10 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
     objective_array = np.zeros((len(x_cand)))
 
     for method in acquisition:
+
+        if method not in function_dict:
+            raise KeyError(f'{method} does not exist as an acquisition strategy. Available methods:'
+                           f'{function_dict.keys()}')
 
         values = function_dict[method]['func'](*itemgetter(*function_dict[method]['params'])(param_dict))
         values = _scale_objective(values, batch_config) if function_dict[method]['scale'] else values
@@ -313,6 +318,12 @@ def _leaveoneout(cand_df, exist_df, batch_config):
     return scorediffs
 
 
+def _looa(cand_df, exist_df, batch_config):
+    scorediffs = _leaveoneout(cand_df, exist_df, batch_config)
+    scorediffs = np.abs(scorediffs)
+    return scorediffs
+
+
 def _gugs(cand_df, exist_df, batch_config):  # Gaussian Uncertainty with Grid Search
 
     alpha_number = batch_config['alpha_number'] if 'alpha_number' in batch_config else 10
@@ -358,7 +369,7 @@ def _scale_objective(objective_array, batch_config):
 def __gaussian_fit(cand_df, exist_df, batch_config):
 
     scaler = batch_config['scaler'] if 'scaler' in batch_config else StandardScaler()
-    gpr = batch_config['gpr'] if 'gpr' in batch_config else gpr = GaussianProcessRegressor(kernel=Matern(nu=0.5))
+    gpr = batch_config['gpr'] if 'gpr' in batch_config else GaussianProcessRegressor(kernel=Matern(nu=0.5))
 
     x_exist = np.array(exist_df.drop('output', axis=1))
     y_exist = np.array(exist_df['output'])
