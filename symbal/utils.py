@@ -335,3 +335,91 @@ def get_optimal_gpr(x_exist_scaled, y_exist, gpr_param_grid, grid_rounds, alpha_
         gpr_model.fit(x_exist_scaled, y_exist)
 
     return gpr_model
+
+
+def keep_old(old_model, new_model, exist_df, x_cand, batch_config):
+
+    x_exist = exist_df.drop('output', axis=1)
+    y_exist = exist_df['output']
+
+    filters = batch_config['filters'] if 'filters' in batch_config else ['mae', 'std']
+    std_thres = batch_config['std_thres'] if 'std_thres' in batch_config else 5
+    available_filters = ['mae', 'std', 'neg', 'nan']
+
+    keep_old_bool = False
+
+    for filter_method in filters:
+
+        if filter_method not in available_filters:
+            raise KeyError(f'{filter_method} does not exist as a filtering method. Available methods: '
+                           f'{available_filters}')
+
+        if filter_method == 'mae':
+
+            past_pred = old_model.predict(x_exist)
+            curr_pred = new_model.predict(x_exist)
+            y_true = np.array(y_exist)
+            past_mae = np.nanmean(np.abs(past_pred - y_true))
+            curr_mae = np.nanmean(np.abs(curr_pred - y_true))
+
+            if curr_mae > past_mae:
+
+                keep_old_bool = True
+                break
+
+        if filter_method == 'std':
+
+            y_min_thres = np.min([np.mean(y_exist) - std_thres * np.std(y_exist), np.min(y_exist)])
+            y_max_thres = np.max([np.mean(y_exist) + std_thres * np.std(y_exist), np.max(y_exist)])
+
+            past_proj = np.array(old_model.predict(x_cand))
+            curr_proj = np.array(new_model.predict(x_cand))
+
+            past_over = past_proj - y_max_thres
+            past_over[past_over < 0] = 0
+            past_under = y_min_thres - past_proj
+            past_under[past_over < 0] = 0
+            past_oob = np.sum(past_over + past_under)
+
+            curr_over = curr_proj - y_max_thres
+            curr_over[curr_over < 0] = 0
+            curr_under = y_min_thres - curr_proj
+            curr_under[curr_over < 0] = 0
+            curr_oob = np.sum(curr_over + curr_under)
+
+            if curr_oob > past_oob:
+
+                keep_old_bool = True
+                break
+
+        if filter_method == 'neg':
+
+            past_proj = np.array(old_model.predict(x_cand))
+            curr_proj = np.array(new_model.predict(x_cand))
+
+            past_proj[past_proj > 0] = 0
+            past_oob = np.sum(np.abs(past_proj))
+
+            curr_proj[curr_proj > 0] = 0
+            curr_oob = np.sum(np.abs(curr_proj))
+
+            if curr_oob > past_oob:
+
+                keep_old_bool = True
+                break
+
+        if filter_method == 'nan':
+
+            past_proj = np.array(old_model.predict(x_cand))
+            curr_proj = np.array(new_model.predict(x_cand))
+
+            past_nan = np.sum(np.isnan(past_proj))
+            curr_nan = np.sum(np.isnan(curr_proj))
+
+            if curr_nan > past_nan:
+
+                keep_old_bool = True
+                break
+
+    return keep_old_bool
+

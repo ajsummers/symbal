@@ -2,7 +2,7 @@ import copy
 
 from symbal import TestFunction, Dataset
 from symbal.utils import batch_selection as bs
-from symbal.utils import get_score, get_metrics, get_test, get_distances, get_class_scores
+from symbal.utils import get_score, get_metrics, get_test, get_distances, get_class_scores, keep_old
 from symbal.strategy import objective
 from pysr import PySRRegressor
 import numpy as np
@@ -61,16 +61,13 @@ class SymbalTest:
             else:
                 pysr_model.fit(x_train, y_train)
 
+            x_cand = datobj.candidates.drop('output', axis=1)
+
             if self.past_model is not None:
 
-                past_pred = self.past_model.predict(x_train)
-                curr_pred = pysr_model.predict(x_train)
-                true_y = np.array(y_train)
+                keep_old_bool = keep_old(self.past_model, pysr_model, datobj.initial_set, x_cand, batch_config)
 
-                past_mae = np.nanmean(np.abs(past_pred - true_y))
-                curr_mae = np.nanmean(np.abs(curr_pred - true_y))
-
-                if curr_mae > past_mae:
+                if keep_old_bool:
                     pysr_model = self.past_model
                     pysr_model.equation_file = re.sub(r'-\d+', f'-{i}', pysr_model.equation_file)
 
@@ -91,9 +88,6 @@ class SymbalTest:
             best_scores.append(score)
             losses_other.append(loss_other)
             scores_other.append(score_other)
-
-            x_cand = datobj.candidates.drop('output', axis=1)
-            x_exist = datobj.initial_set.drop('output', axis=1)
 
             if boundary:
 

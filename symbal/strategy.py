@@ -18,24 +18,25 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
     x_exist = exist_df.drop('output', axis=1)
 
     function_dict = {
-        'gradient':     {'func': _gradient,     'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'curvature':    {'func': _curvature,    'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'grad1':        {'func': _grad1,        'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'curv1':        {'func': _curv1,        'params': {'x_cand', 'pysr_model',  'batch_config'}, 'scale': True},
-        'uncertainty':  {'func': _uncertainty,  'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'certainty':    {'func': _certainty,    'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'Aopt':         {'func': _aopt,         'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'Dopt':         {'func': _dopt,         'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'Eopt':         {'func': _eopt,         'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'boundary':     {'func': _boundary,     'params': ['x_cand', 'pysr_model',  'batch_config'], 'scale': True},
-        'distance':     {'func': _distance,     'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
-        'proximity':    {'func': _proximity,    'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
-        'density':      {'func': _density,      'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
-        'sparsity':     {'func': _sparsity,     'params': ['x_cand', 'x_exist',     'batch_config'], 'scale': False},
+        'gradient':     {'func': _gradient,     'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'curvature':    {'func': _curvature,    'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'grad1':        {'func': _grad1,        'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'curv1':        {'func': _curv1,        'params': {'x_cand',  'pysr_model', 'batch_config'}, 'scale': True},
+        'uncertainty':  {'func': _uncertainty,  'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'certainty':    {'func': _certainty,    'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'Aopt':         {'func': _aopt,         'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'Dopt':         {'func': _dopt,         'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'Eopt':         {'func': _eopt,         'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'boundary':     {'func': _boundary,     'params': ['x_cand',  'pysr_model', 'batch_config'], 'scale': True},
+        'distance':     {'func': _distance,     'params': ['x_cand',  'x_exist',    'batch_config'], 'scale': False},
+        'proximity':    {'func': _proximity,    'params': ['x_cand',  'x_exist',    'batch_config'], 'scale': False},
+        'density':      {'func': _density,      'params': ['x_cand',  'x_exist',    'batch_config'], 'scale': False},
+        'sparsity':     {'func': _sparsity,     'params': ['x_cand',  'x_exist',    'batch_config'], 'scale': False},
         'gaussian_unc': {'func': _gaussian_unc, 'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'know_grad':    {'func': _know_grad,    'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'leaveoneout':  {'func': _leaveoneout,  'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'LOOA':         {'func': _looa,         'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
+        'LOOM':         {'func': _loom,         'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'GUGS':         {'func': _gugs,         'params': ['cand_df', 'exist_df',   'batch_config'], 'scale': True},
         'random':       {'func': _random,       'params': ['x_cand'],                                'scale': False},
         'rand1':        {'func': _rand1,        'params': ['x_cand'],                                'scale': False},
@@ -49,9 +50,12 @@ def objective(cand_df, exist_df, pysr_model, acquisition, batch_config):
 
         if method not in function_dict:
             raise KeyError(f'{method} does not exist as an acquisition strategy. Available methods:'
-                           f'{function_dict.keys()}')
+                           f' {list(function_dict.keys())}')
 
-        values = function_dict[method]['func'](*itemgetter(*function_dict[method]['params'])(param_dict))
+        if len(function_dict[method]['params']) == 1:
+            values = function_dict[method]['func'](itemgetter(*function_dict[method]['params'])(param_dict))
+        else:
+            values = function_dict[method]['func'](*itemgetter(*function_dict[method]['params'])(param_dict))
         values = _scale_objective(values, batch_config) if function_dict[method]['scale'] else values
         objective_array += acquisition[method] * values
 
@@ -321,6 +325,11 @@ def _leaveoneout(cand_df, exist_df, batch_config):
 def _looa(cand_df, exist_df, batch_config):
     scorediffs = _leaveoneout(cand_df, exist_df, batch_config)
     scorediffs = np.abs(scorediffs)
+    return scorediffs
+
+
+def _loom(cand_df, exist_df, batch_config):
+    scorediffs = -1 * _leaveoneout(cand_df, exist_df, batch_config)
     return scorediffs
 
 
